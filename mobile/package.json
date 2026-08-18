@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "expo": "~54.0.36",
+    "expo-build-properties": "~1.0.10",
     "expo-constants": "~18.0.13",
     "expo-crypto": "~15.0.9",
     "expo-haptics": "~15.0.8",
