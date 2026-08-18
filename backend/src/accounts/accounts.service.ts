@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Role } from '../../generated/prisma/enums.ts';
 import type { AuthenticatedUser } from '../common/auth.types';
@@ -17,6 +18,23 @@ export class AccountsService {
 
   /** Everything the customer dashboard needs, in one round trip. */
   async getDashboard(user: AuthenticatedUser) {
+    // The auth guard trusts the token's claims and never queries the database,
+    // which means a token can outlive the user it names — an account closed by
+    // staff, or a database restored from a backup. Without this check the client
+    // gets an empty-but-successful dashboard, keeps showing whatever it fetched
+    // before, and then fails confusingly when it acts on a stale account id.
+    // The dashboard is the natural place to notice, and it is one query on one
+    // screen rather than on every request.
+    const owner = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new UnauthorizedException(
+        'Your session is no longer valid. Please sign in again.',
+      );
+    }
+
     const accounts = await this.prisma.account.findMany({
       where: { ownerId: user.id },
       orderBy: { createdAt: 'asc' },

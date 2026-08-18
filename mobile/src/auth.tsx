@@ -7,7 +7,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, setAuthToken, type SessionUser } from './api';
+import {
+  api,
+  setAuthToken,
+  setUnauthorizedHandler,
+  type SessionUser,
+} from './api';
 import { tokenStore } from './tokenStore';
 
 interface AuthState {
@@ -84,6 +89,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     await tokenStore.clear();
   }, []);
+
+  // Any 401 from a signed-in request ends the session, so the app falls back to
+  // the login screen instead of showing data it can no longer act on.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      void signOut();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [signOut]);
 
   const value = useMemo(
     () => ({ user, restoring, signInCustomer, signInStaff, signOut }),

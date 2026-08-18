@@ -165,6 +165,20 @@ export function setAuthToken(token: string | null): void {
   authToken = token;
 }
 
+/**
+ * Called when the server rejects our token.
+ *
+ * A rejected token means the session is over — expired, revoked, or naming a
+ * user that no longer exists. Without this the app keeps rendering whatever it
+ * last fetched and then fails on stale ids, which reads as a broken screen
+ * rather than "please sign in again".
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
@@ -230,6 +244,11 @@ async function request<T>(
   const payload = text ? safeParse(text) : null;
 
   if (!response.ok) {
+    // Not for the login routes: a wrong PIN is also a 401, and signing out in
+    // response to it would be pointless.
+    if (response.status === 401 && !path.startsWith('/auth/')) {
+      onUnauthorized?.();
+    }
     throw new ApiError(extractMessage(payload, response.status), response.status);
   }
 
