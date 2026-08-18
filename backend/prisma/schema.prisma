@@ -50,6 +50,61 @@ enum TransactionType {
   WITHDRAWAL
   TRANSFER_IN
   TRANSFER_OUT
+
+  /// Compensating entries. The ledger is append-only, so undoing a movement
+  /// writes an opposing row rather than editing or deleting the original.
+  ///
+  /// Two of them, rather than one `REVERSAL`, so that whether an entry is a
+  /// credit or a debit stays a total function of its type. A single reversal
+  /// type would have to be interpreted against whatever it reversed, and the
+  /// first person to reverse a movement in the other direction would silently
+  /// get the sign wrong.
+  REVERSAL_CREDIT
+  REVERSAL_DEBIT
+}
+
+/// Which way money is moving relative to the customer's account.
+enum MovementDirection {
+  DEPOSIT
+  WITHDRAWAL
+}
+
+/// The rail the money travels on. Each rail differs only in what counts as
+/// confirmation: a manager's approval for branch cash, a provider callback for
+/// mobile money.
+enum MovementChannel {
+  BRANCH_CASH
+  MOBILE_MONEY
+}
+
+enum MovementStatus {
+  /// Raised, nothing dispatched yet. Branch cash sits here until a manager
+  /// decides; mobile money passes through on its way to PROCESSING.
+  PENDING
+
+  /// Handed to a payment provider; we are waiting for their callback.
+  PROCESSING
+
+  COMPLETED
+  REJECTED
+  CANCELLED
+  EXPIRED
+
+  /// A payout was dispatched and we never learned the outcome — the provider
+  /// timed out or answered ambiguously.
+  ///
+  /// This state exists precisely so that such a payout is never retried
+  /// automatically. Retrying a transfer that may already have succeeded is how
+  /// you pay someone twice. Money stays reserved and a human resolves it
+  /// against the provider's records.
+  UNRESOLVED
+}
+
+enum WebhookStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  DEAD_LETTER
 }
 
 enum TransactionStatus {
@@ -99,6 +154,9 @@ model User {
   createdCustomers  User[] @relation("CreatedCustomers")
   approvedCustomers User[] @relation("ApprovedCustomers")
 
+  requestedMovements MoneyRequest[] @relation("RequestedMovements")
+  decidedMovements   MoneyRequest[] @relation("DecidedMovements")
+
   @@index([role])
   @@index([approvalStatus])
 }
@@ -122,8 +180,9 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  transactions      Transaction[] @relation("AccountLedger")
-  counterpartyOfTxs Transaction[] @relation("TransactionCounterparty")
+  transactions      Transaction[]  @relation("AccountLedger")
+  counterpartyOfTxs Transaction[]  @relation("TransactionCounterparty")
+  moneyRequests     MoneyRequest[]
 
   @@index([ownerId])
   @@index([status])
@@ -161,10 +220,134 @@ model Transaction {
 
   createdAt DateTime @default(now())
 
+  movementEntry    MoneyRequest? @relation("MovementEntry")
+  movementReversal MoneyRequest? @relation("MovementReversal")
+
   @@index([accountId, createdAt])
   @@index([transferGroupId])
   @@index([createdAt])
   @@index([type])
+}
+
+/// An instruction to move money that needs confirming before it is final.
+///
+/// One state machine covers every rail:
+///
+///   requested -> PENDING -> COMPLETED
+///                        -> REJECTED / CANCELLED / EXPIRED
+///
+/// What differs per rail is only *who or what confirms it*: a manager approving
+/// a branch cash slip, or a provider callback for mobile money.
+///
+/// Deposits and withdrawals are deliberately not symmetric:
+///
+///   - a DEPOSIT writes no ledger entry until it is confirmed, because the
+///     money is not ours until it has actually arrived;
+///   - a WITHDRAWAL writes its debit immediately and holds it, because
+///     otherwise the same balance could back several pending withdrawals at
+///     once. If it does not complete, a compensating entry gives it back.
+model MoneyRequest {
+  id        String            @id @default(uuid())
+  reference String            @unique
+  direction MovementDirection
+  channel   MovementChannel
+  status    MovementStatus    @default(PENDING)
+
+  amount   BigInt
+  currency String @default("RWF")
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  requestedById String
+  requestedBy   User   @relation("RequestedMovements", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  /// Branch cash deposit only: the reference printed on the physical deposit
+  /// slip. Unique across the platform, so the same slip cannot be claimed
+  /// twice — by this customer or anyone else. This is the verification anchor
+  /// that makes a customer-declared deposit checkable at all.
+  slipReference String?   @unique
+  branchName    String?
+  depositedAt   DateTime?
+
+  decidedById  String?
+  decidedBy    User?     @relation("DecidedMovements", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt    DateTime?
+  decisionNote String?
+
+  /// The ledger entry this produced: the credit for a completed deposit, or
+  /// the held debit for a withdrawal. Unique, so a request can never be
+  /// settled onto the ledger twice.
+  transactionId String?      @unique
+  transaction   Transaction? @relation("MovementEntry", fields: [transactionId], references: [id], onDelete: SetNull)
+
+  /// The compensating entry written if a held withdrawal is given back.
+  reversalTransactionId String?      @unique
+  reversalTransaction   Transaction? @relation("MovementReversal", fields: [reversalTransactionId], references: [id], onDelete: SetNull)
+
+  /// Withdrawals only: collect the cash by this time or it is given back.
+  expiresAt DateTime?
+
+  // --- Payment provider fields (mobile money) -------------------------
+
+  /// Supplied by the client. Unique, so a double-tap or a retried request
+  /// returns the original movement instead of starting a second one.
+  idempotencyKey String? @unique
+
+  /// The provider's own id for this transaction. How an incoming webhook is
+  /// matched back to the request that started it.
+  providerRef String? @unique
+
+  /// The phone number money came from, or is going to. Payouts are restricted
+  /// to the number on the customer's profile — sending to an arbitrary number
+  /// supplied at request time is how a hijacked account gets cashed out.
+  payerMsisdn String?
+
+  providerStatus String?
+  failureReason  String?
+
+  /// Set when a payout was dispatched, so a stale PROCESSING request can be
+  /// spotted and chased up.
+  dispatchedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([accountId, createdAt])
+  @@index([requestedById])
+}
+
+/// Every callback a payment provider has sent us.
+///
+/// Recorded before it is acted on, and keyed by the provider's own event id, so
+/// a replayed or duplicated delivery is recognised and ignored rather than
+/// applied twice. Providers retry aggressively and deliver out of order; this
+/// table is what makes that harmless.
+model WebhookEvent {
+  id       String @id @default(uuid())
+  provider String
+
+  /// The provider's event id. Unique — this is the replay guard.
+  providerEventId String @unique
+
+  /// Their reference for the underlying transaction, used to find our request.
+  providerRef String?
+
+  payload        Json
+  signatureValid Boolean
+
+  status      WebhookStatus @default(PENDING)
+  attempts    Int           @default(0)
+  nextAttemptAt DateTime?
+  lastError   String?
+  processedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([providerRef])
 }
 
 /// Append-only trail of sensitive actions, for staff oversight.

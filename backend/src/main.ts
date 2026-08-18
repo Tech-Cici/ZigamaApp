@@ -10,7 +10,10 @@ import { AppModule } from './app.module';
 };
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody keeps the exact bytes of each request available. Webhook
+  // signatures are HMACs over the raw payload, and re-serialising the parsed
+  // JSON would change key order and whitespace, breaking every signature.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.setGlobalPrefix('api');
   app.enableCors({ origin: true, credentials: true });

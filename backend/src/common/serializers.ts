@@ -57,7 +57,32 @@ export interface TransactionView {
   createdAt: Date;
 }
 
-const CREDIT_TYPES = new Set<TransactionType>(['DEPOSIT', 'TRANSFER_IN']);
+/**
+ * Whether an entry adds to the account or takes from it.
+ *
+ * Written as an exhaustive map rather than a set of "the credits", so adding a
+ * transaction type is a compile error here until its direction is declared.
+ * Getting this wrong silently flips a sign on someone's statement.
+ */
+const ENTRY_DIRECTION: Record<TransactionType, '+' | '-'> = {
+  DEPOSIT: '+',
+  TRANSFER_IN: '+',
+  REVERSAL_CREDIT: '+',
+  WITHDRAWAL: '-',
+  TRANSFER_OUT: '-',
+  REVERSAL_DEBIT: '-',
+};
+
+/**
+ * The credit types, derived from the map above so there is exactly one place
+ * that decides direction. Raw SQL that has to classify entries builds its
+ * predicate from this rather than repeating the list — a second copy would
+ * silently misclassify the next type someone adds.
+ */
+export const CREDIT_TRANSACTION_TYPES = (
+  Object.keys(ENTRY_DIRECTION) as TransactionType[]
+).filter((type) => ENTRY_DIRECTION[type] === '+');
+
 
 export function serializeTransaction(transaction: {
   id: string;
@@ -77,7 +102,7 @@ export function serializeTransaction(transaction: {
     type: transaction.type,
     status: transaction.status,
     amount: formatMinor(transaction.amount),
-    direction: CREDIT_TYPES.has(transaction.type) ? '+' : '-',
+    direction: ENTRY_DIRECTION[transaction.type],
     currency: transaction.currency,
     balanceAfter: formatMinor(transaction.balanceAfter),
     description: transaction.description,

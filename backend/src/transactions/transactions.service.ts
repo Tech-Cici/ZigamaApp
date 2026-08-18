@@ -56,7 +56,7 @@ export class TransactionsService {
 
     return this.runLocked(async (tx) => {
       const account = await this.lockAccount(tx, dto.accountId);
-      this.assertMayOperate(actor, account);
+      this.assertMayOperate(actor, account, 'cash');
       this.assertOperable(account);
 
       const balanceAfter = account.balance + amount;
@@ -96,7 +96,7 @@ export class TransactionsService {
 
     return this.runLocked(async (tx) => {
       const account = await this.lockAccount(tx, dto.accountId);
-      this.assertMayOperate(actor, account);
+      this.assertMayOperate(actor, account, 'cash');
       this.assertOperable(account);
 
       // The balance was read under the row lock, so no concurrent withdrawal
@@ -169,7 +169,7 @@ export class TransactionsService {
       const source = locked.get(dto.fromAccountId)!;
       const destination = locked.get(recipient.id)!;
 
-      this.assertMayOperate(actor, source);
+      this.assertMayOperate(actor, source, 'transfer');
       this.assertOperable(source);
       this.assertOperable(destination, 'Recipient account');
 
@@ -344,13 +344,39 @@ export class TransactionsService {
     return { ...row, balance: BigInt(row.balance) };
   }
 
-  /** Customers act only on their own accounts; admins may act as a teller. */
+  /**
+   * Who may move money directly on the ledger.
+   *
+   * Transfers are a customer's own instruction and settle immediately, so a
+   * customer may make them on an account they own.
+   *
+   * Deposits and withdrawals are different: cash has to physically change
+   * hands, and a customer able to call them from a phone can simply invent a
+   * balance. Those are teller operations — an ADMIN recording a counter
+   * transaction. Customers go through MovementsService instead, where a
+   * manager confirms the cash before the ledger moves.
+   */
   private assertMayOperate(
     actor: AuthenticatedUser,
     account: LockedAccount,
+    operation: 'transfer' | 'cash',
   ): void {
     if (actor.role === Role.ADMIN) return;
-    if (actor.role === Role.CUSTOMER && account.ownerId === actor.id) return;
+
+    if (
+      operation === 'transfer' &&
+      actor.role === Role.CUSTOMER &&
+      account.ownerId === actor.id
+    ) {
+      return;
+    }
+
+    if (operation === 'cash' && actor.role === Role.CUSTOMER) {
+      throw new ForbiddenException(
+        'Deposits and withdrawals are handled at a branch. Use the Move money ' +
+          'screen to record a branch deposit or request a cash withdrawal.',
+      );
+    }
 
     throw new ForbiddenException(
       'You are not permitted to operate on this account',

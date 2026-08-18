@@ -86,7 +86,7 @@ async function main() {
   console.log('\n--- Deposit / withdraw / transfer ---');
 
   const dep = await call('/transactions/deposit', {
-    token: grace,
+    token: admin,
     method: 'POST',
     body: { accountId: checking.id, amount: '5000.50', description: 'test deposit' },
   });
@@ -95,7 +95,7 @@ async function main() {
     `expected ${startBalance + 500050} got ${money(dep.body.balanceAfter)}`);
 
   const wdr = await call('/transactions/withdraw', {
-    token: grace,
+    token: admin,
     method: 'POST',
     body: { accountId: checking.id, amount: 2000.25 },
   });
@@ -133,22 +133,22 @@ async function main() {
   console.log('\n--- Validation and limits ---');
 
   const negative = await call('/transactions/deposit', {
-    token: grace, method: 'POST', body: { accountId: checking.id, amount: -100 },
+    token: admin, method: 'POST', body: { accountId: checking.id, amount: -100 },
   });
   check('negative deposit rejected', negative.status === 400, `got ${negative.status}`);
 
   const zero = await call('/transactions/deposit', {
-    token: grace, method: 'POST', body: { accountId: checking.id, amount: 0 },
+    token: admin, method: 'POST', body: { accountId: checking.id, amount: 0 },
   });
   check('zero deposit rejected', zero.status === 400, `got ${zero.status}`);
 
   const threeDp = await call('/transactions/deposit', {
-    token: grace, method: 'POST', body: { accountId: checking.id, amount: '10.999' },
+    token: admin, method: 'POST', body: { accountId: checking.id, amount: '10.999' },
   });
   check('more than 2 decimal places rejected', threeDp.status === 400, `got ${threeDp.status}`);
 
   const huge = await call('/transactions/withdraw', {
-    token: grace, method: 'POST', body: { accountId: checking.id, amount: '999999999' },
+    token: admin, method: 'POST', body: { accountId: checking.id, amount: '999999999' },
   });
   check('withdrawal beyond balance rejected', huge.status === 400, `got ${huge.status}`);
 
@@ -169,7 +169,8 @@ async function main() {
   const ericAttack = await call('/transactions/withdraw', {
     token: eric, method: 'POST', body: { accountId: checking.id, amount: '100' },
   });
-  check("customer cannot withdraw from another customer's account", ericAttack.status === 403, `got ${ericAttack.status}`);
+  check('customers cannot use the teller withdraw endpoint at all',
+    ericAttack.status === 403, `got ${ericAttack.status}`);
 
   const ericRead = await call(`/accounts/${checking.id}`, { token: eric });
   check("customer cannot read another customer's account", ericRead.status === 403, `got ${ericRead.status}`);
@@ -223,7 +224,7 @@ async function main() {
   check('admin can freeze an account', freeze.status === 200 && freeze.body.status === 'FROZEN', `got ${freeze.status}`);
 
   const frozenWithdraw = await call('/transactions/withdraw', {
-    token: grace, method: 'POST', body: { accountId: checking.id, amount: '10' },
+    token: admin, method: 'POST', body: { accountId: checking.id, amount: '10' },
   });
   check('frozen account cannot withdraw', frozenWithdraw.status === 403, `got ${frozenWithdraw.status}`);
 
@@ -248,7 +249,7 @@ async function main() {
   const results = await Promise.all(
     Array.from({ length: 12 }, () =>
       call('/transactions/withdraw', {
-        token: diane, method: 'POST',
+        token: admin, method: 'POST',
         body: { accountId: dianeAcct.id, amount: sliceMajor },
       }),
     ),

@@ -1,5 +1,5 @@
 import { Redirect } from 'expo-router';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -107,8 +107,16 @@ export default function Login() {
 
         <ErrorBanner message={error} />
 
+        {/*
+          Keyed so switching tabs remounts the inputs instead of reusing them.
+          Both branches render two fields in the same position, so React would
+          otherwise keep the same native TextInput and only update its props —
+          and a native input that was created as a numeric keypad can hold on to
+          that keyboard, which makes the email field silently reject letters.
+          Remounting guarantees each mode gets inputs configured from scratch.
+        */}
         {mode === 'customer' ? (
-          <>
+          <Fragment key="customer-fields">
             <Field
               label="Account number"
               value={accountNumber}
@@ -130,9 +138,9 @@ export default function Login() {
               secureTextEntry
               maxLength={6}
             />
-          </>
+          </Fragment>
         ) : (
-          <>
+          <Fragment key="staff-fields">
             <Field
               label="Work email"
               value={email}
@@ -150,7 +158,7 @@ export default function Login() {
               secureTextEntry
               autoCapitalize="none"
             />
-          </>
+          </Fragment>
         )}
 
         <Button
@@ -159,7 +167,6 @@ export default function Login() {
           loading={submitting}
           disabled={!canSubmit}
         />
-
 
         <View style={styles.demoBox}>
           <Text style={styles.demoTitle}>Demo credentials</Text>

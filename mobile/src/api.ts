@@ -108,6 +108,37 @@ export interface CustomerRecord {
   }[];
 }
 
+export type MovementDirection = 'DEPOSIT' | 'WITHDRAWAL';
+export type MovementStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'COMPLETED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'EXPIRED'
+  | 'UNRESOLVED';
+
+export interface MovementView {
+  id: string;
+  reference: string;
+  direction: MovementDirection;
+  channel: 'BRANCH_CASH' | 'MOBILE_MONEY';
+  status: MovementStatus;
+  amount: string;
+  currency: string;
+  providerRef: string | null;
+  failureReason: string | null;
+  slipReference: string | null;
+  branchName: string | null;
+  depositedAt: string | null;
+  decisionNote: string | null;
+  decidedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  accountNumber: string;
+  accountHolder: string;
+}
+
 export interface Paginated<T> {
   data: T[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
@@ -281,6 +312,69 @@ export const api = {
       `/transactions?page=${page}&limit=${limit}` +
         (accountId ? `&accountId=${accountId}` : ''),
     ),
+
+  // --- Cash movements needing confirmation -----------------------------
+
+  declareBranchDeposit: (input: {
+    accountId: string;
+    amount: string;
+    slipReference: string;
+    branchName: string;
+  }) =>
+    request<MovementView>('/movements/deposits/branch', {
+      method: 'POST',
+      body: input,
+    }),
+
+  requestBranchWithdrawal: (input: {
+    accountId: string;
+    amount: string;
+    branchName: string;
+  }) =>
+    request<MovementView>('/movements/withdrawals/branch', {
+      method: 'POST',
+      body: input,
+    }),
+
+  momoDeposit: (input: {
+    accountId: string;
+    amount: string;
+    idempotencyKey: string;
+  }) =>
+    request<MovementView>('/movements/deposits/momo', {
+      method: 'POST',
+      body: input,
+    }),
+
+  momoWithdrawal: (input: {
+    accountId: string;
+    amount: string;
+    idempotencyKey: string;
+  }) =>
+    request<MovementView>('/movements/withdrawals/momo', {
+      method: 'POST',
+      body: input,
+    }),
+
+  myMovements: () => request<Paginated<MovementView>>('/movements/mine'),
+
+  cancelMovement: (id: string) =>
+    request<MovementView>(`/movements/${id}/cancel`, { method: 'POST' }),
+
+  pendingMovements: () =>
+    request<Paginated<MovementView>>('/movements/pending'),
+
+  approveMovement: (id: string, note?: string) =>
+    request<MovementView>(`/movements/${id}/approve`, {
+      method: 'POST',
+      body: { note },
+    }),
+
+  rejectMovement: (id: string, reason: string) =>
+    request<MovementView>(`/movements/${id}/reject`, {
+      method: 'POST',
+      body: { reason },
+    }),
 
   adminStats: () => request<AdminStats>('/admin/stats'),
 

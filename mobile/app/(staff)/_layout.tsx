@@ -40,6 +40,13 @@ export default function StaffLayout() {
         }}
       />
       <Tabs.Screen
+        name="cash"
+        options={{
+          title: 'Cash desk',
+          tabBarIcon: ({ color }) => <Icon name="exchange" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="customers"
         options={{
           title: 'Customers',

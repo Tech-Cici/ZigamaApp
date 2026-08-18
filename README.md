@@ -81,7 +81,11 @@ the hold, then sign in as the manager and clear them from the Approvals tab.
 | See own balances and history | ✅ | — | — |
 | Open a customer account | ❌ | ❌ | ✅ |
 | Approve / reject an application | ❌ | ✅ | ❌ |
-| Deposit / withdraw / transfer | ✅ | ❌ | ✅ (as teller, any account) |
+| Transfer between accounts | ✅ | ❌ | ✅ |
+| Deposit / withdraw directly | ❌ | ❌ | ✅ (teller only) |
+| Request a cash or mobile money movement | ✅ | ❌ | ❌ |
+| Confirm a cash movement | ❌ | ✅ | ❌ |
+| Run reconciliation | ❌ | ❌ | ✅ |
 | See platform statistics | ❌ | ✅ | ✅ |
 | See all customers and balances | ❌ | ✅ | ✅ |
 | See every transaction | ❌ | ✅ | ✅ |
@@ -186,6 +190,104 @@ Not implemented: forced PIN change on first login, and HTTP-level rate limiting.
 
 ---
 
+## Moving money
+
+Nothing moves the instant a button is tapped. Every cash movement is a
+`MoneyRequest` on one state machine:
+
+```
+raised -> PENDING -> PROCESSING -> COMPLETED
+                              \-> REJECTED / CANCELLED / EXPIRED / UNRESOLVED
+```
+
+Four rails share it, differing only in **what counts as confirmation**:
+
+| Rail | Confirmed by |
+|---|---|
+| Branch cash deposit | a manager checking the slip against branch records |
+| Branch cash withdrawal | a teller recording that cash was handed over |
+| Mobile money deposit | a signed provider callback |
+| Mobile money payout | a signed provider callback |
+
+Customers cannot call the teller endpoints at all — `POST /transactions/deposit`
+and `/withdraw` are ADMIN-only. A customer able to deposit from their phone can
+invent a balance.
+
+### Deposits and withdrawals are not symmetric
+
+This is the part that trips people up, and getting it backwards loses real money:
+
+- **A deposit writes no ledger entry until it is confirmed.** The money is not
+  ours until it has actually arrived. A pending deposit shows as pending and
+  affects nothing.
+- **A withdrawal debits immediately and holds it.** Otherwise the same balance
+  could back three pending withdrawals and all three get collected.
+
+Undoing a held withdrawal writes a compensating `REVERSAL_CREDIT` entry. The
+ledger is append-only — the attempt stays in the customer's history, and the
+balance still equals the sum of its entries.
+
+### The unknown payout
+
+A payout whose outcome we never learn goes to `UNRESOLVED` and is **never
+retried automatically**. Retrying a transfer that may already have succeeded is
+how you pay someone twice. The money stays held, and only reconciliation — which
+asks the provider directly — is allowed to decide. A provider that cannot be
+reached reports `UNKNOWN`, never `FAILED`, for the same reason.
+
+### Idempotency, in three independent layers
+
+| Layer | Mechanism | Stops |
+|---|---|---|
+| Client | `idempotencyKey` unique | double-taps, retried requests |
+| Webhook | `providerEventId` unique | provider replays |
+| Ledger | compare-and-swap on status + unique `transactionId` | two callbacks racing |
+
+The third is the actual guarantee: settling does `UPDATE ... WHERE status IN
+(open states)`, so of two simultaneous deliveries exactly one matches a row. The
+first two layers are cheap early exits.
+
+Callbacks are also checked against the **recorded** amount. A correctly signed
+payload reporting a different figure is refused — a provider that disagrees with
+us is either buggy or the body was tampered with.
+
+### Webhook handling
+
+Signatures are HMAC-SHA256 over the **raw request bytes** (`rawBody: true` in
+`main.ts`). Re-serialising parsed JSON changes key order and whitespace, so every
+signature would fail. Comparison is timing-safe.
+
+An unverified payload is never queued for retry — anyone can POST to a public
+webhook URL, and queueing unsigned work lets a stranger fill the queue. Verified
+callbacks always get a 200, even if processing failed: providers read non-2xx as
+"send it again", so failures are retried internally instead with backoff, and
+dead-lettered after 5 attempts.
+
+### Reconciliation
+
+A sweep runs every 5 minutes (`ReconciliationService`) and on demand via
+`POST /api/admin/reconciliation/run`. It drains webhook retries, gives back
+uncollected branch withdrawals, asks the provider about anything in flight too
+long, and recomputes every balance from its ledger.
+
+Mismatches are **reported, not repaired**. An automatic fix would hide the bug
+that caused the drift and could itself move money wrongly.
+
+### Provider setup
+
+`PAYMENT_PROVIDER=mock` is the default. The mock needs no credentials and no
+public URL, and it deliberately does not fire callbacks on a timer — tests and
+demos post them, which is what makes replay and out-of-order delivery
+exercisable. Amounts ending `.01` fail and `.02` never resolve, so you can drive
+each path.
+
+The MTN adapter is written and wired but inactive until you set
+`PAYMENT_PROVIDER=mtn` plus `MTN_SUBSCRIPTION_KEY`, `MTN_API_USER`,
+`MTN_API_KEY` and `MTN_ENVIRONMENT`. Those need registering by hand on MTN's
+portal, and their sandbox cannot reach `localhost`, so webhooks need a tunnel.
+
+---
+
 ## Authentication
 
 Customers authenticate with account number + PIN; staff with email + password.
@@ -227,6 +329,8 @@ demo convenience, not a way to ship a banking client.
 | `JWT_SECRET` | Signing key. Generate a long random value. |
 | `JWT_EXPIRES_IN` | Token lifetime, default `12h`. |
 | `PORT` | API port, default 3000. |
+| `PAYMENT_PROVIDER` | `mock` (default) or `mtn`. |
+| `PAYMENT_WEBHOOK_SECRET` | HMAC secret provider callbacks are signed with. |
 
 Two database URLs because Prisma 7 connects through a **driver adapter** that
 speaks plain Postgres over TCP and cannot open the `prisma+postgres://` URL the
@@ -277,6 +381,21 @@ All routes are under `/api`. Everything except the two login routes requires
 | GET | `/admin/customers/pending` | manager, admin — approval queue |
 | POST | `/admin/customers/:id/approve` | **manager only** |
 | POST | `/admin/customers/:id/reject` | **manager only** — reason required |
+| GET | `/health` | public — liveness, also wakes an idled instance |
+| POST | `/movements/deposits/branch` | customer — declare a branch cash deposit |
+| POST | `/movements/withdrawals/branch` | customer — reserve cash to collect |
+| POST | `/movements/deposits/momo` | customer — mobile money collection |
+| POST | `/movements/withdrawals/momo` | customer — mobile money payout |
+| GET | `/movements/mine` | customer |
+| POST | `/movements/:id/cancel` | customer — own request only |
+| GET | `/movements/pending` | manager, admin |
+| POST | `/movements/:id/approve` | **manager only** |
+| POST | `/movements/:id/reject` | **manager only** |
+| POST | `/payments/webhooks/:provider` | public — HMAC-signed provider callback |
+| POST | `/admin/reconciliation/run` | **admin only** |
+| GET | `/admin/reconciliation/unresolved` | manager, admin |
+| GET | `/admin/reconciliation/dead-letters` | manager, admin |
+| GET | `/admin/reconciliation/webhooks` | manager, admin |
 | PATCH | `/admin/accounts/:id/status` | admin |
 | PATCH | `/admin/users/:id/status` | admin |
 
@@ -288,7 +407,7 @@ customer names.
 
 ## Testing
 
-Two end-to-end suites, **85 checks total**, covering auth, registration,
+Four end-to-end suites, **148 checks total**, covering auth, registration,
 validation, authorization boundaries, freeze behaviour, concurrency and ledger
 reconciliation.
 
@@ -298,8 +417,14 @@ With the API running and the database seeded:
 cd backend && npm run test:all
 ```
 
-Or individually — `npm test` (ledger, 45 checks) and `npm run test:onboarding`
-(onboarding, 40 checks).
+Or individually: `npm test` (ledger, 45), `npm run test:onboarding` (40),
+`npm run test:movements` (33), `npm run test:payments` (30).
+
+The payment suite needs the same webhook secret the API is using:
+
+```bash
+PAYMENT_WEBHOOK_SECRET="$(grep '^PAYMENT_WEBHOOK_SECRET' .env | cut -d'\"' -f2)" npm run test:payments
+```
 
 **The ledger concurrency check** fires 12 simultaneous withdrawals each worth a
 sixth of the balance: exactly 6 succeed, the other 6 are cleanly rejected as
@@ -311,7 +436,16 @@ create but not approve, a manager can approve but not create, nobody approves
 their own work, a pending customer can neither sign in nor receive money, a
 rejected one is told why, and no partial user records survive a failed create.
 
-Both suites accept an `API_URL` environment variable, so you can point them at a
+**The movement suite** proves deposits credit only on confirmation, withdrawals
+reserve at request time, and rejection or cancellation reverses exactly once.
+
+**The payment suite** covers the cases that actually bite: a replayed webhook
+credits once, three simultaneous identical deliveries credit once, a tampered
+body fails verification, a signed callback with the wrong amount is refused, a
+failed payout refunds exactly once, and an unmatched callback is retried rather
+than dropped.
+
+All suites accept an `API_URL` environment variable, so you can point them at a
 server on another port without stopping the one you are running.
 
 Run the suites a few seconds apart. Back to back, the second one can fail while
