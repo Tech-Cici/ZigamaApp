@@ -26,11 +26,16 @@ function resolveApiUrl(): string {
   const host = hostUri?.split(':')[0];
   if (host) return `http://${host}:${API_PORT}/api`;
 
-  // No build-time URL and no Metro: this is a release build that was compiled
-  // without EXPO_PUBLIC_API_URL. Falling back to localhost here would produce a
-  // silent "could not reach the server" on every screen, and the cause would be
-  // invisible from inside the app. Fail loudly instead — the mistake belongs to
-  // the build, not the user.
+  // In development there may legitimately be no host to derive: on web the
+  // browser and the API are on the same machine, and `hostUri` is not set.
+  // localhost is the right answer there.
+  if (__DEV__) return `http://localhost:${API_PORT}/api`;
+
+  // A release build with no baked-in URL and no Metro, though, is a broken
+  // build. Falling back to localhost would mean "could not reach the server" on
+  // every screen with nothing to point at the cause, so fail loudly — the
+  // mistake belongs to whoever ran the build, not to the person holding the
+  // phone.
   throw new Error(
     'EXPO_PUBLIC_API_URL was not set when this app was built. ' +
       'Rebuild with: EXPO_PUBLIC_API_URL=https://your-api.example.com/api',

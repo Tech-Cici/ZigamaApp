@@ -113,10 +113,6 @@ export default function MoveMoney() {
     await Promise.all([accountsData.reload(), movements.reload()]);
   }, [accountsData, movements]);
 
-  if (accountsData.loading && !accounts) {
-    return <LoadingScreen label="Loading accounts" />;
-  }
-
   async function submit() {
     if (!accountId) return;
     setError(null);
@@ -222,6 +218,13 @@ export default function MoveMoney() {
     },
     [refreshAll],
   );
+
+  // Must sit below every hook: React matches hooks by call order, so returning
+  // early above one means the loading render calls fewer hooks than the loaded
+  // render and the order breaks.
+  if (accountsData.loading && !accounts) {
+    return <LoadingScreen label="Loading accounts" />;
+  }
 
   const amountValid =
     /^\d+(\.\d{1,2})?$/.test(amount.trim()) && Number(amount) > 0;
