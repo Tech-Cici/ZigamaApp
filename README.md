@@ -8,8 +8,15 @@ customer, account and transaction.
 ```
 banking-platform/
 ├── backend/    NestJS + Prisma + PostgreSQL API
-└── mobile/     Expo (React Native) app — customer and staff, one codebase
+├── mobile/     Expo (React Native) app — account holders only
+└── web/        React + Vite staff console — admins and managers
 ```
+
+**Two clients, deliberately.** Customers get an app because banking on a phone
+is the point. Staff get a browser console because their work is desk work:
+checking a deposit slip against branch records, reading a transaction feed,
+working through an approval queue. Those want a wide screen and a real table,
+and staff should never have to install anything or be on a particular network.
 
 **Versions:** Expo **SDK 54** (`expo@54.0.36`, `expo-router@6`, React 19.1,
 React Native 0.81.5). The SDK is pinned to 54 deliberately — Expo Go installs
@@ -42,14 +49,23 @@ cd backend && npm run db:migrate && npm run db:seed
 cd backend && npm run start
 ```
 
-**4. Mobile app**
+**4. Staff console**
+
+```bash
+cd web && npm run dev
+```
+
+Opens on http://localhost:5173. Sign in with a staff account below.
+
+**5. Customer app**
 
 ```bash
 cd mobile && npm start
 ```
 
 Then press `i` for the iOS simulator, `a` for Android, `w` for the browser, or
-scan the QR code with Expo Go on a real phone.
+scan the QR code with Expo Go on a real phone. Only account holders can sign in
+here — staff credentials are rejected.
 
 ### Demo logins
 
@@ -63,8 +79,8 @@ Created by `npm run db:seed`. All data is fictional.
 | Customer | Account number + PIN | `1000000004` / `4567` |
 | *Awaiting approval* | Account number + PIN | `1000000005` / `5827` |
 | *Awaiting approval* | Account number + PIN | `1000000006` / `6193` |
-| Admin | Email + password | `admin@zigama.test` / `Admin@12345` |
-| Manager | Email + password | `manager@zigama.test` / `Manager@12345` |
+| Admin | Email + password — **web console** | `admin@zigama.test` / `Admin@12345` |
+| Manager | Email + password — **web console** | `manager@zigama.test` / `Manager@12345` |
 
 Account `1000000001` also has a second (savings) account, `2000000001`, so you
 can try transfers between your own accounts.
@@ -331,6 +347,7 @@ demo convenience, not a way to ship a banking client.
 | `PORT` | API port, default 3000. |
 | `PAYMENT_PROVIDER` | `mock` (default) or `mtn`. |
 | `PAYMENT_WEBHOOK_SECRET` | HMAC secret provider callbacks are signed with. |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API. Unset in development. |
 
 Two database URLs because Prisma 7 connects through a **driver adapter** that
 speaks plain Postgres over TCP and cannot open the `prisma+postgres://` URL the
@@ -469,6 +486,11 @@ below.
   registration. It is a reset-to-known-demo-state tool, and the reset has to be
   total — a partial reset leaves accounts holding a balance with no ledger rows,
   which is exactly the invariant the seed asserts.
+- **The staff console keeps its token in `localStorage`**, which any script on
+  that origin can read. The mobile app uses the device keychain. For a console
+  that can freeze accounts and approve money, httpOnly cookies plus CSRF
+  protection would be materially better — that is a backend auth change and has
+  not been done.
 - **No refresh tokens.** Sessions last `JWT_EXPIRES_IN` and then require signing
   in again.
 - **No rate limiting at the HTTP layer.** Per-account lockout exists, but a

@@ -20,7 +20,6 @@ interface AuthState {
   /** True until the stored session has been checked on launch. */
   restoring: boolean;
   signInCustomer: (accountNumber: string, pin: string) => Promise<void>;
-  signInStaff: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -76,14 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persist],
   );
 
-  const signInStaff = useCallback(
-    async (email: string, password: string) => {
-      const result = await api.loginStaff(email, password);
-      await persist(result.token, result.user);
-    },
-    [persist],
-  );
-
   const signOut = useCallback(async () => {
     setAuthToken(null);
     setUser(null);
@@ -100,8 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [signOut]);
 
   const value = useMemo(
-    () => ({ user, restoring, signInCustomer, signInStaff, signOut }),
-    [user, restoring, signInCustomer, signInStaff, signOut],
+    () => ({ user, restoring, signInCustomer, signOut }),
+    [user, restoring, signInCustomer, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

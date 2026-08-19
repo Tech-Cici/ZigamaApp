@@ -9,9 +9,10 @@ export default function CustomerLayout() {
 
   if (restoring) return <LoadingScreen />;
   if (!user) return <Redirect href="/login" />;
-  // Staff who land here are sent to their own console rather than shown an
-  // empty customer dashboard.
-  if (user.role !== 'CUSTOMER') return <Redirect href="/(staff)/overview" />;
+  // Staff cannot sign in here at all — the login screen only accepts an account
+  // number and PIN — but if a staff token somehow reaches this app, send them
+  // back rather than rendering an empty customer dashboard.
+  if (user.role !== 'CUSTOMER') return <Redirect href="/login" />;
 
   return (
     <Tabs

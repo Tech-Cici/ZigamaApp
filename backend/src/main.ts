@@ -16,7 +16,20 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.setGlobalPrefix('api');
-  app.enableCors({ origin: true, credentials: true });
+
+  // The mobile app sends no Origin header, so it is unaffected either way. The
+  // staff console is a browser app and is what this protects: reflecting any
+  // origin lets a page on another site call the API with a signed-in operator's
+  // credentials. Set CORS_ORIGINS to a comma-separated allow-list in
+  // production; development stays permissive so a LAN IP or tunnel just works.
+  const allowed = process.env.CORS_ORIGINS?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  app.enableCors({
+    origin: allowed?.length ? allowed : true,
+    credentials: true,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -277,12 +277,6 @@ export const api = {
       body: { accountNumber, pin },
     }),
 
-  loginStaff: (email: string, password: string) =>
-    request<{ token: string; user: SessionUser }>('/auth/staff/login', {
-      method: 'POST',
-      body: { email, password },
-    }),
-
   me: () => request<SessionUser>('/auth/me'),
 
   /**
