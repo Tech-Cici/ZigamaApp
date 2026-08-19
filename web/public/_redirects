@@ -1,0 +1,5 @@
+# Single-page app: every path is handled by the router in the browser, so the
+# host must serve index.html for all of them. Without this, loading or
+# refreshing /customers asks the host for a file that does not exist and returns
+# a 404 — the app works only if you always enter through "/".
+/*  /index.html  200

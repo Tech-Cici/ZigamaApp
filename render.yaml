@@ -1,0 +1,55 @@
+# Render blueprint for the whole platform.
+#
+# Deploy with: Render dashboard -> New -> Blueprint -> pick this repo.
+# Secrets are marked `sync: false`, which means Render prompts for them rather
+# than reading them from this file — nothing sensitive belongs in version
+# control.
+services:
+  # --- API -------------------------------------------------------------
+  - type: web
+    name: zigama-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    # Applies pending migrations, then boots.
+    startCommand: npm run start:deploy
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Neon connection string. One URL does both jobs against a real Postgres,
+      # so DIRECT_DATABASE_URL stays unset here.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      - key: PAYMENT_PROVIDER
+        value: mock
+      # A real Postgres honours its advertised limit, unlike the local WASM
+      # dev server which tolerates two connections.
+      - key: DB_POOL_MAX
+        value: "10"
+      # Browser origins allowed to call the API. Set this to the staff console
+      # URL once Render has assigned it.
+      - key: CORS_ORIGINS
+        sync: false
+
+  # --- Staff console ---------------------------------------------------
+  - type: web
+    name: zigama-staff
+    runtime: static
+    rootDir: web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    # Same reason as public/_redirects: the router owns every path.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Vite inlines this at build time, so changing it needs a redeploy.
+      - key: VITE_API_URL
+        sync: false
