@@ -473,15 +473,20 @@ below.
 
 ## Known limitations
 
-- **The local `prisma dev` server has a low connection ceiling.** It is Postgres
-  17.5 compiled to WebAssembly (`wasm32-unknown-linux-gnu`), not a native
-  install, and it starts dropping connections above roughly half a dozen — which
-  is why `DB_POOL_MAX` defaults to 5. Verified as a server limit, not an
-  application or ORM one: raw `pg` shows identical behaviour at the same
-  concurrency. Write transactions retry transient drops
-  (`backend/src/common/db-retry.ts`), which absorbs most of it, but ~5
-  simultaneous signups will still see one or two fail locally. A real Postgres
-  handles them without trouble; raise `DB_POOL_MAX` when you point at one.
+- **The local `prisma dev` server tolerates exactly two connections.** It is
+  Postgres 17.5 compiled to WebAssembly and advertises `max_connections = 100`,
+  but measurably terminates the *third* simultaneous connection. `DB_POOL_MAX`
+  therefore defaults to **2**.
+
+  This matters more than it sounds. A pool larger than the real ceiling is
+  actively harmful: the pool opens sockets the server then kills, and hands
+  those dead sockets to whatever query asks next, so ordinary reads fail with
+  `ConnectionClosed` on a database that is otherwise healthy. Sizing the pool
+  to 2 made 24 concurrent reads go from *five guaranteed failures* to zero, and
+  faster — queuing behind two good connections beats racing for five bad ones.
+
+  Raise `DB_POOL_MAX` to 10 or more against a real Postgres, where the
+  advertised limit is the actual limit.
 - **`npm run db:seed` wipes everything**, including accounts opened through
   registration. It is a reset-to-known-demo-state tool, and the reset has to be
   total — a partial reset leaves accounts holding a balance with no ledger rows,
