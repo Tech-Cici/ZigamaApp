@@ -35,22 +35,26 @@ export class AccountsService {
       );
     }
 
-    const accounts = await this.prisma.account.findMany({
-      where: { ownerId: user.id },
-      orderBy: { createdAt: 'asc' },
-    });
+    const accounts = await this.prisma.read('dashboard-accounts', () =>
+      this.prisma.account.findMany({
+        where: { ownerId: user.id },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
 
     const accountIds = accounts.map((account) => account.id);
 
     const recent = accountIds.length
-      ? await this.prisma.transaction.findMany({
+      ? await this.prisma.read('dashboard-recent', () =>
+          this.prisma.transaction.findMany({
           where: { accountId: { in: accountIds } },
           orderBy: { createdAt: 'desc' },
           take: RECENT_TRANSACTION_COUNT,
-          include: {
-            counterpartyAccount: { select: { accountNumber: true } },
-          },
-        })
+            include: {
+              counterpartyAccount: { select: { accountNumber: true } },
+            },
+          }),
+        )
       : [];
 
     const totalBalance = accounts.reduce(
@@ -68,10 +72,12 @@ export class AccountsService {
   }
 
   async listMyAccounts(user: AuthenticatedUser) {
-    const accounts = await this.prisma.account.findMany({
-      where: { ownerId: user.id },
-      orderBy: { createdAt: 'asc' },
-    });
+    const accounts = await this.prisma.read('my-accounts', () =>
+      this.prisma.account.findMany({
+        where: { ownerId: user.id },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
     return accounts.map(serializeAccount);
   }
 

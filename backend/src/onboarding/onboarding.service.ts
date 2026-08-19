@@ -227,19 +227,21 @@ export class OnboardingService {
       approvalStatus: ApprovalStatus.PENDING,
     };
 
-    const [total, rows] = await Promise.all([
-      this.prisma.user.count({ where }),
-      this.prisma.user.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          accounts: true,
-          createdBy: { select: { id: true, fullName: true } },
-        },
-      }),
-    ]);
+    const [total, rows] = await this.prisma.read('pending-customers', () =>
+      Promise.all([
+        this.prisma.user.count({ where }),
+        this.prisma.user.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            accounts: true,
+            createdBy: { select: { id: true, fullName: true } },
+          },
+        }),
+      ]),
+    );
 
     return {
       data: rows.map((user) => ({

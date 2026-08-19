@@ -44,9 +44,8 @@ export class AdminService {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [row] = await this.prisma.$queryRaw<
-      Array<Record<string, string | number | bigint>>
-    >`
+    const [row] = await this.prisma.read('stats', () =>
+      this.prisma.$queryRaw<Array<Record<string, string | number | bigint>>>`
       SELECT
         (SELECT COUNT(*) FROM "User" WHERE "role" = 'CUSTOMER'::"Role")
           AS "totalCustomers",
@@ -70,7 +69,8 @@ export class AdminService {
           AS "volumeToday",
         (SELECT COALESCE(SUM("amount"), 0) FROM "Transaction")
           AS "volumeAllTime"
-    `;
+    `,
+    );
 
     return {
       totalCustomers: toNumber(row.totalCustomers),
@@ -101,16 +101,18 @@ export class AdminService {
         }
       : {};
 
-    const [total, users] = await Promise.all([
-      this.prisma.user.count({ where }),
-      this.prisma.user.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: { accounts: { orderBy: { createdAt: 'asc' } } },
-      }),
-    ]);
+    const [total, users] = await this.prisma.read('users-list', () =>
+      Promise.all([
+        this.prisma.user.count({ where }),
+        this.prisma.user.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: { accounts: { orderBy: { createdAt: 'asc' } } },
+        }),
+      ]),
+    );
 
     return {
       data: users.map((user) => ({
@@ -138,7 +140,8 @@ export class AdminService {
   }
 
   async getUser(userId: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.read('admin-user', () =>
+      this.prisma.user.findUnique({
       where: { id: userId },
       include: {
         accounts: {
@@ -154,7 +157,8 @@ export class AdminService {
           },
         },
       },
-    });
+      }),
+    );
 
     if (!user) throw new NotFoundException('User not found');
 
@@ -191,24 +195,26 @@ export class AdminService {
         : {}),
     };
 
-    const [total, rows] = await Promise.all([
-      this.prisma.transaction.count({ where }),
-      this.prisma.transaction.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          counterpartyAccount: { select: { accountNumber: true } },
-          account: {
-            select: {
-              accountNumber: true,
-              owner: { select: { id: true, fullName: true } },
+    const [total, rows] = await this.prisma.read('transactions-feed', () =>
+      Promise.all([
+        this.prisma.transaction.count({ where }),
+        this.prisma.transaction.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            counterpartyAccount: { select: { accountNumber: true } },
+            account: {
+              select: {
+                accountNumber: true,
+                owner: { select: { id: true, fullName: true } },
+              },
             },
           },
-        },
-      }),
-    ]);
+        }),
+      ]),
+    );
 
     return {
       data: rows.map((row) => ({
@@ -291,17 +297,19 @@ export class AdminService {
   }
 
   async listAuditLogs(page = 1, limit = 50) {
-    const [total, logs] = await Promise.all([
-      this.prisma.auditLog.count(),
-      this.prisma.auditLog.findMany({
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          actor: { select: { id: true, fullName: true, role: true } },
-        },
-      }),
-    ]);
+    const [total, logs] = await this.prisma.read('audit-logs', () =>
+      Promise.all([
+        this.prisma.auditLog.count(),
+        this.prisma.auditLog.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            actor: { select: { id: true, fullName: true, role: true } },
+          },
+        }),
+      ]),
+    );
 
     return {
       data: logs.map((log) => ({

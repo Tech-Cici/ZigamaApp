@@ -736,23 +736,25 @@ export class MovementsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 25;
 
-    const [total, rows] = await Promise.all([
-      this.prisma.moneyRequest.count({ where }),
-      this.prisma.moneyRequest.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          account: {
-            select: {
-              accountNumber: true,
-              owner: { select: { id: true, fullName: true } },
+    const [total, rows] = await this.prisma.read('movements-list', () =>
+      Promise.all([
+        this.prisma.moneyRequest.count({ where }),
+        this.prisma.moneyRequest.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            account: {
+              select: {
+                accountNumber: true,
+                owner: { select: { id: true, fullName: true } },
+              },
             },
           },
-        },
-      }),
-    ]);
+        }),
+      ]),
+    );
 
     return {
       data: rows.map((row) => ({

@@ -56,12 +56,35 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 
 const TIMEOUT_MS = 20_000;
 
+/**
+ * Free hosting suspends an idle instance and takes 30-60s to boot it again, so
+ * the first request after a quiet spell is not a failure — it is a cold start.
+ * A flat 20s budget turned that into "Could not reach the API", which reads as
+ * an outage and invites someone to go looking for a bug that is not there.
+ *
+ * The long budget applies only until one request has come back; after that the
+ * instance is awake and a slow response really is a problem worth surfacing.
+ */
+const COLD_START_TIMEOUT_MS = 75_000;
+
+const IS_REMOTE_API = !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(
+  API_URL,
+);
+
+let serverIsWarm = false;
+
+/** True while we are probably waiting on a sleeping instance to boot. */
+export function isProbablyColdStart(): boolean {
+  return IS_REMOTE_API && !serverIsWarm;
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const budget = isProbablyColdStart() ? COLD_START_TIMEOUT_MS : TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), budget);
   const token = getToken();
 
   let response: Response;
@@ -77,15 +100,26 @@ async function request<T>(
     });
   } catch (error) {
     const aborted = (error as Error)?.name === 'AbortError';
+    // A cold start can also surface as a plain network error rather than a
+    // timeout: while the instance is booting, the host's own error page comes
+    // back without CORS headers, so the browser rejects the fetch before we
+    // ever see a status. Both cases mean the same thing to the operator.
     throw new ApiError(
-      aborted
-        ? 'The server took too long to respond.'
-        : `Could not reach the API at ${API_URL}. Is it running?`,
+      IS_REMOTE_API && !serverIsWarm
+        ? 'The API is waking up. Free hosting sleeps when idle and takes up ' +
+            'to a minute to start. Please try again in a moment.'
+        : aborted
+          ? 'The server took too long to respond.'
+          : `Could not reach the API at ${API_URL}. Is it running?`,
       0,
     );
   } finally {
     clearTimeout(timer);
   }
+
+  // Anything coming back at all — including an error status — means the
+  // instance is up, so later requests go back to the short budget.
+  serverIsWarm = true;
 
   const text = await response.text();
   const payload = text ? safeParse(text) : null;

@@ -261,16 +261,18 @@ export class TransactionsService {
       ...(query.accountId ? { accountId: query.accountId } : {}),
     };
 
-    const [total, rows] = await Promise.all([
-      this.prisma.transaction.count({ where }),
-      this.prisma.transaction.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: { counterpartyAccount: { select: { accountNumber: true } } },
-      }),
-    ]);
+    const [total, rows] = await this.prisma.read('history', () =>
+      Promise.all([
+        this.prisma.transaction.count({ where }),
+        this.prisma.transaction.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: { counterpartyAccount: { select: { accountNumber: true } } },
+        }),
+      ]),
+    );
 
     return {
       data: rows.map(serializeTransaction),

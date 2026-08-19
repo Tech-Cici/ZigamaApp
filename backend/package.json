@@ -14,12 +14,12 @@
     "db:studio": "node scripts/studio.mjs",
     "db:seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node test/e2e.mjs",
-    "test:all": "node test/e2e.mjs && node test/onboarding.mjs && node test/movements.mjs && node test/payments.mjs",
-    "test:onboarding": "node test/onboarding.mjs",
+    "test": "node --env-file-if-exists=.env test/e2e.mjs",
+    "test:all": "node --env-file-if-exists=.env test/e2e.mjs && node --env-file-if-exists=.env test/onboarding.mjs && node --env-file-if-exists=.env test/movements.mjs && node --env-file-if-exists=.env test/payments.mjs",
+    "test:onboarding": "node --env-file-if-exists=.env test/onboarding.mjs",
     "start:deploy": "prisma migrate deploy && node dist/src/main",
-    "test:movements": "node test/movements.mjs",
-    "test:payments": "node test/payments.mjs"
+    "test:movements": "node --env-file-if-exists=.env test/movements.mjs",
+    "test:payments": "node --env-file-if-exists=.env test/payments.mjs"
   },
   "keywords": [],
   "author": "",

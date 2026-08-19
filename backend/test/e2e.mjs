@@ -192,13 +192,19 @@ async function main() {
   console.log('\n--- Admin ---');
 
   // The seed creates 4 approved customers plus 2 left awaiting approval.
+  // These are absolute counts, so this suite needs a freshly seeded database.
+  // Running it twice in a row leaves customers behind and trips this check.
   const stats = await call('/admin/stats', { token: admin });
-  check('admin stats returns counts',
+  const countsMatch =
     stats.status === 200 &&
-      stats.body.totalCustomers === 6 &&
-      stats.body.activeCustomers === 4 &&
-      stats.body.pendingApprovals === 2,
-    JSON.stringify(stats.body));
+    stats.body.totalCustomers === 6 &&
+    stats.body.activeCustomers === 4 &&
+    stats.body.pendingApprovals === 2;
+  check('admin stats returns counts', countsMatch,
+    countsMatch
+      ? ''
+      : `${JSON.stringify(stats.body)} — if the counts are too high, ` +
+        'reseed first: npm run db:seed');
   console.log(`        holdings ${stats.body.totalHoldings}, txns today ${stats.body.transactionsToday}`);
 
   const users = await call('/admin/users', { token: admin });
@@ -282,8 +288,11 @@ async function main() {
     });
     pages = feed.body.pagination.totalPages;
     for (const t of feed.body.data) {
-      const credit = t.type === 'DEPOSIT' || t.type === 'TRANSFER_IN';
-      const delta = credit ? money(t.amount) : -money(t.amount);
+      // Take the sign from the API's own `direction` rather than restating
+      // which types are credits. This test used to keep its own list, missed
+      // REVERSAL_CREDIT when reversals were added, and reported a phantom
+      // 30,000.02 drift on a correctly-balanced ledger.
+      const delta = t.direction === '+' ? money(t.amount) : -money(t.amount);
       byAccount.set(
         t.accountNumber,
         (byAccount.get(t.accountNumber) ?? 0) + delta,
