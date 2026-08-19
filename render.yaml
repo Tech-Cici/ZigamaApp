@@ -11,7 +11,11 @@ services:
     runtime: node
     plan: free
     rootDir: backend
-    buildCommand: npm install && npm run build
+    # --include=dev is required, not optional: NODE_ENV=production below makes
+    # npm skip devDependencies, and the build tools (@nestjs/cli, typescript,
+    # prisma) all live there. Without it `nest build` is not installed and the
+    # build dies with exit 127, command not found.
+    buildCommand: npm install --include=dev && npm run build
     # Applies pending migrations, then boots.
     startCommand: npm run start:deploy
     healthCheckPath: /api/health
@@ -42,7 +46,8 @@ services:
     name: zigama-staff
     runtime: static
     rootDir: web
-    buildCommand: npm install && npm run build
+    # Same reason as the API: vite and typescript are devDependencies.
+    buildCommand: npm install --include=dev && npm run build
     staticPublishPath: dist
     # Same reason as public/_redirects: the router owns every path.
     routes:
