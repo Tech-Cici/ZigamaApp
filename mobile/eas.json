@@ -17,7 +17,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REPLACE-ME.onrender.com/api"
+        "EXPO_PUBLIC_API_URL": "https://zigama-api.onrender.com/api"
       },
       "ios": {
         "simulator": false
@@ -29,18 +29,9 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REPLACE-ME.onrender.com/api"
+        "EXPO_PUBLIC_API_URL": "https://zigama-api.onrender.com/api"
       },
       "ios": {}
-    },
-    "lan": {
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "http://172.20.10.2:3000/api"
-      }
     },
     "ios-simulator": {
       "distribution": "internal",
@@ -48,7 +39,7 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://172.20.10.2:3000/api"
+        "EXPO_PUBLIC_API_URL": "https://zigama-api.onrender.com/api"
       }
     }
   },
